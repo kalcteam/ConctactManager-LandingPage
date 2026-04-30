@@ -279,23 +279,61 @@ function Step2({
   )
 }
 
+const PLAN_PRICE_IDS: Record<PlanId, string> = {
+  monthly:   process.env.NEXT_PUBLIC_STRIPE_PRICE_MONTHLY   ?? '',
+  quarterly: process.env.NEXT_PUBLIC_STRIPE_PRICE_QUARTERLY ?? '',
+  biannual:  process.env.NEXT_PUBLIC_STRIPE_PRICE_BIANNUAL  ?? '',
+  annual:    process.env.NEXT_PUBLIC_STRIPE_PRICE_ANNUAL    ?? '',
+}
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000'
+
 /* ── Step 3: Pago ───────────────────────────────── */
 function Step3({
   initialPlan,
+  empresa,
+  personal,
   onBack,
 }: {
   initialPlan: PlanId
+  empresa: EmpresaData
+  personal: PersonalData
   onBack: () => void
 }) {
   const [selected, setSelected] = useState<PlanId>(initialPlan)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   async function handleCheckout() {
     setLoading(true)
-    // TODO: call POST /v1/public/register then redirect to Stripe Checkout
-    await new Promise((r) => setTimeout(r, 1200))
-    setLoading(false)
-    alert('Integración con Stripe pendiente de configurar.')
+    setError(null)
+    try {
+      const res = await fetch(`${API_BASE}/v1/public/checkout-init`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: personal.nombre,
+          email: personal.email,
+          password: personal.password,
+          password_confirmation: personal.confirmPassword,
+          tenant_name: empresa.nombre,
+          razon_social: empresa.razonSocial || undefined,
+          nif: empresa.nif || undefined,
+          direccion_fiscal: empresa.direccionFiscal || undefined,
+          price_id: PLAN_PRICE_IDS[selected],
+        }),
+      })
+      const json = await res.json()
+      if (res.ok && json.data?.checkout_url) {
+        window.location.href = json.data.checkout_url
+      } else {
+        setError(json.message ?? 'No se pudo iniciar el pago. Inténtalo de nuevo.')
+        setLoading(false)
+      }
+    } catch {
+      setError('Error de conexión. Inténtalo de nuevo.')
+      setLoading(false)
+    }
   }
 
   return (
@@ -340,6 +378,12 @@ function Step3({
           No se realizará ningún cargo durante los 3 días de prueba. Puedes cancelar antes de que finalice sin coste alguno.
         </p>
       </div>
+
+      {error && (
+        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+          <p className="text-sm text-red-700">{error}</p>
+        </div>
+      )}
 
       <div className="mt-8 flex gap-3">
         <button
@@ -472,6 +516,8 @@ function RegistroContent() {
           {step === 3 && (
             <Step3
               initialPlan={validPlan}
+              empresa={empresa}
+              personal={personal}
               onBack={() => setStep(2)}
             />
           )}
